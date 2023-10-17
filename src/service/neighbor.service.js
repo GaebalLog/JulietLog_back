@@ -106,5 +106,16 @@ export const neighborService = {
         } catch (error) {
             throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
-    }
+    },
+    getNeighbor: async (userId, targetUserId) => {
+        try {
+        const user = await userRepository.findByUserId(targetUserId);
+            if (!user) {
+                throw customError(StatusCodes.NOT_FOUND, "The user does not exist.");
+            }
+            return await neighborRepository.isFollowing(userId, targetUserId);
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
 }

@@ -177,5 +177,15 @@ export const userController = {
         }
         await neighborService.unfollow(req.user.userId, req.params.id);
         return res.status(StatusCodes.OK).end()
+    }),
+    getNeighbor: asyncWrapper(async (req, res) => {
+        if (!req.params.id) {
+            throw customError(StatusCodes.UNPROCESSABLE_ENTITY, `Request body not present.`);
+        }
+        if (!req.user || req.user.userId === req.params.id) {
+            return res.status(StatusCodes.OK).end();
+        }
+        const neighbor = await neighborService.getNeighbor(req.user.userId, req.params.id);
+        return res.status(StatusCodes.OK).json({isNeighbor: !!neighbor});
     })
 }
