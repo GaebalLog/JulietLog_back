@@ -25,6 +25,7 @@ router.patch('/users/image', isAuthenticated,
     upload.single('image'), userController.updateProfileImage);
 
 router.route('/users/neighbors/:id')
+    .get(isAuthenticated, userController.getNeighbor)
     .post(isAuthorized, userController.followNeighbor)
     .delete(isAuthorized, userController.unfollowNeighbor);
 
