@@ -1,4 +1,4 @@
-import { profileRepository, userRepository, passwordRepository } from '@/repository';
+import { profileRepository, userRepository, passwordRepository, blockRepository } from '@/repository';
 import { validateSchema, sendVerificationMail, createToken, redisCli as redisClient, createPassword } from '@/utils';
 import { customError } from '@/common/error';
 import { StatusCodes } from 'http-status-codes';
@@ -13,29 +13,19 @@ const generateRandomString = (length) => {
     return result;
 }
 
-const generateRandomPassword = () => {
-    let result = '';
-    const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    const specialCharset = "!@#$%^&*()";
-    for (let i = 0; i < 6; i++) {
-        result += charset.charAt(crypto.randomInt(charset.length));
-    }
-    for (let i = 0; i < 3; i++) {
-        result += specialCharset.charAt(crypto.randomInt(specialCharset.length));
-    }
-    return result;
-}
-
 export const userService = {
     isEmailExists: async (email) => {
         try {
             await validateSchema.email.validateAsync(email);
             const user = await userRepository.findByEmail(email);
             if (user) {
-                throw customError(StatusCodes.BAD_REQUEST, "Email Already exists.");
+                throw customError(StatusCodes.CONFLICT, "Email Already exists.");
             }
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            if (error.name === "ValidationError") {
+                throw customError(StatusCodes.BAD_REQUEST, `Data validation failed.`);
+            }
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     isNicknameExists: async (nickname) => {
@@ -43,10 +33,13 @@ export const userService = {
             await validateSchema.nickname.validateAsync(nickname)
             const user = await userRepository.findByNickname(nickname);
             if (user) {
-                throw customError(StatusCodes.BAD_REQUEST, "Nickname Already exists.");
+                throw customError(StatusCodes.CONFLICT, "Nickname Already exists.");
             }
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            if (error.name === "ValidationError") {
+                throw customError(StatusCodes.BAD_REQUEST, `Data validation failed.`);
+            }
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     getUserInformation: async (accessToken) => {
@@ -54,7 +47,7 @@ export const userService = {
             const userId = profileRepository.findUserIdByToken(accessToken);
             return await profileRepository.findUserInformationById(userId);
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     createUser: async (data) => {
@@ -63,7 +56,7 @@ export const userService = {
             const email = await userRepository.findByEmail(data.email);
             const nickname = await userRepository.findByNickname(data.nickname);
             if (email || nickname) {
-                throw customError(StatusCodes.BAD_REQUEST, email ? `[Signup Error#1] Email Already exists.`
+                throw customError(StatusCodes.CONFLICT, email ? `[Signup Error#1] Email Already exists.`
                         : `[Signup Error#2] Nickname Already exists.`);
             }
             const user = await userRepository.createUser(data);
@@ -75,7 +68,7 @@ export const userService = {
             if (error.name === "ValidationError") {
                 throw customError(StatusCodes.BAD_REQUEST, `Data validation failed.`);
             }
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     updateUser: async (userId, data) => {
@@ -97,15 +90,12 @@ export const userService = {
             if (error.name === "ValidationError") {
                 throw customError(StatusCodes.BAD_REQUEST, 'Data validation failed.');
             }
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     deleteUser: async (userId) => {
         try {
-            const count = await userRepository.deleteUser(userId);
-            if (count === 0) {
-                throw customError(StatusCodes.NOT_FOUND, "User not found");
-            }
+            await userRepository.deleteUser(userId);
         } catch (error) {
             throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
@@ -118,35 +108,50 @@ export const userService = {
             if (error.name === "ValidationError") {
                 throw customError(StatusCodes.BAD_REQUEST, "Data validation failed.");
             }
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
     sendPasswordResetMail: async (email) => {
         try {
-            const user = await userRepository.findByEmail(email);
-            if (!user) {
-                throw customError(StatusCodes.BAD_REQUEST, "No users match this email");
+            const user = await userRepository.findUserByEmail(email);
+            if (!user || user.loginType !== 0) {
+                if (!user) {
+                    throw customError(StatusCodes.NOT_FOUND, "No users match this email");
+                }
+                throw customError(StatusCodes.BAD_REQUEST, "This feature is not available to social sign-up users.");
             }
-            const info = await sendVerificationMail(email, generateRandomString(6));
+            const profile = await profileRepository.findByUserId(user.userId);
+            const info = await sendVerificationMail(email, profile.nickname, generateRandomString(6));
             if (info.error) {
                 throw customError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to send mail.");
             }
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
-    verificationMailHandler: async (email, code) => {
+    checkVerification: async (email, code) => {
         try {
             const result = await redisClient.get(email);
-            const password = generateRandomPassword();
             if (result === code) {
-                const user = await userRepository.findByEmail(email);
+                return true;
+            }
+            return false
+        } catch (error) {
+            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, "Redis error");
+        }
+    },
+    verificationMailHandler: async (email, code, password) => {
+        try {
+            const result = await redisClient.get(email);
+            if (result === code) {
+                const user = await userRepository.findUserByEmail(email);
                 await passwordRepository.updatePassword(user.userId, createPassword(password));
+                await redisClient.del(email);
                 return password;
             }
-            throw customError(StatusCodes.BAD_REQUEST, "Authentication code does not match.");
+            throw customError(StatusCodes.CONFLICT, "Authentication code does not match.");
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     },
 }

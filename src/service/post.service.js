@@ -1,5 +1,18 @@
+import {StatusCodes} from 'http-status-codes';
+import {customError} from '@/common/error';
 import {postRepository} from '@/repository/post.repository';
-import {verifyToken, redisCli as redisClient} from "@/utils";
+import {redisCli as redisClient, verifyToken} from "@/utils";
+import {commentRepository} from '@/repository/comment.repository';
+import {profileRepository} from '@/repository';
+
+const getUserNickname = async (posts) => {
+    const profiles = await profileRepository.findNicknameByIds(posts.map(p => p.userId));
+    return new Map(profiles.map(item => [item.userId, item.nickname]));
+}
+
+const getBookmark = async (userId) => {
+    return await postRepository.getBookmarkByUserId(userId);
+}
 
 export const postService = {
     getUserIdFromToken: async (req) => {
@@ -70,7 +83,7 @@ export const postService = {
     },
 
     increaseViewCount: async (ip, post) => {
-        const viewerKey = `viewer:${post.postId}:${ip}`;
+        const viewerKey = `viewer:postId:${post.postId}:ip:${ip}`;
 
         const isViewed = await redisClient.get(viewerKey);
         if (isViewed) {
@@ -78,7 +91,7 @@ export const postService = {
         }
 
         const EXPIRATION_TIME = 1800;   // 1800초(30분) 이내 조회 여부
-        await redisClient.set(`viewer:${post.postId}:${ip}`, new Date().getTime(), {EX: EXPIRATION_TIME});
+        await redisClient.set(viewerKey, new Date().getTime(), {EX: EXPIRATION_TIME});
 
         const updatedViewCount = await postRepository.increaseViewCount(post);
         return updatedViewCount
@@ -138,7 +151,7 @@ export const postService = {
             if (bookmark) {
                 await postRepository.deleteBookmark(userId, postId);
             } else {
-                await postRepository.addBookmark(userId, postId);
+                await postRepository.createBookmark(userId, postId);
             }
 
             return !!bookmark;
@@ -156,7 +169,7 @@ export const postService = {
                 await postRepository.deleteLike(userId, postId);
                 likeCount--;
             } else {
-                await postRepository.addLike(userId, postId);
+                await postRepository.createLike(userId, postId);
                 likeCount++;
             }
 
@@ -168,6 +181,163 @@ export const postService = {
             console.log(error);
             throw new Error('Error toggle like post');
         }
-    }
+    },
 
-}
+    getPostsById: async (userId, myUserId) => {
+        try {
+            const posts = await postRepository.getPostsById(userId);
+            if (posts?.length === 0) {
+                throw customError(StatusCodes.NOT_FOUND, `No posts`);
+            }
+            const nicknames = await getUserNickname(posts);
+            const bookmarks = await getBookmark(myUserId ? myUserId : 0);
+            return posts.map(p => {
+                let bookmark = false;
+                bookmarks.map(b => {
+                    if (b.postId === p.postId) {
+                        bookmark = true;
+                    }
+                });
+                return {
+                    postId: p.postId,
+                    userId: p.userId,
+                    title: p.title,
+                    content: p.content,
+                    like: p.like,
+                    view: p.like,
+                    createdAt: p.createdAt,
+                    nickname: nicknames.get(p.userId),
+                    categories: p.categories.map(c => c.category),
+                    isBookmarked: bookmark
+                }
+            })
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
+    getLikedPosts: async (userId) => {
+        try {
+            const likedPostIds = await postRepository.getPostIdByLike(userId);
+            if (likedPostIds?.length === 0) {
+                throw customError(StatusCodes.NOT_FOUND, `No posts`);
+            }
+            const posts = await postRepository.getPostsByPostIds(likedPostIds.map(likedPostId => likedPostId.postId));
+            const nicknames = await getUserNickname(posts);
+            const bookmarks = await getBookmark(userId);
+            return posts.map(p => {
+                let bookmark = false;
+                bookmarks.map(b => {
+                    if (b.postId === p.postId) {
+                        bookmark = true;
+                    }
+                });
+                return {
+                    postId: p.postId,
+                    userId: p.userId,
+                    title: p.title,
+                    content: p.content,
+                    like: p.like,
+                    view: p.like,
+                    createdAt: p.createdAt,
+                    nickname: nicknames.get(p.userId),
+                    categories: p.categories.map(c => c.category),
+                    isBookmarked: bookmark
+                }
+            })
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
+    getBookmarkedPosts: async (userId) => {
+        try {
+            const bookmarkedPostIds = await postRepository.getPostIdByBookmark(userId);
+            if (bookmarkedPostIds?.length === 0) {
+                throw customError(StatusCodes.NOT_FOUND, `No posts`);
+            }
+            const posts = await postRepository.getPostsByPostIds(bookmarkedPostIds.map(bookmarkedPostId => bookmarkedPostId.postId));
+            const nicknames = await getUserNickname(posts);
+            const bookmarks = await getBookmark(userId);
+            return posts.map(p => {
+                let bookmark = false;
+                bookmarks.map(b => {
+                    if (b.postId === p.postId) {
+                        bookmark = true;
+                    }
+                });
+                return {
+                    postId: p.postId,
+                    userId: p.userId,
+                    title: p.title,
+                    content: p.content,
+                    like: p.like,
+                    view: p.like,
+                    createdAt: p.createdAt,
+                    nickname: nicknames.get(p.userId),
+                    categories: p.categories.map(c => c.category),
+                    isBookmarked: bookmark
+                }
+            })
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
+    getCommentedPosts: async (userId) => {
+        try {
+            const commentedPostIds = await commentRepository.getPostIdByUserId(userId);
+            if (commentedPostIds?.length === 0) {
+                throw customError(StatusCodes.NOT_FOUND, `No posts`);
+            }
+            const posts = await postRepository.getPostsByPostIds(commentedPostIds.map(commentedPostId => commentedPostId.postId));
+            const nicknames = await getUserNickname(posts);
+            const bookmarks = await getBookmark(userId);
+            return posts.map(p => {
+                let bookmark = false;
+                if (bookmarks?.length > 0) {
+                    if (bookmarks.includes(p.postId)) bookmark = true;
+                }
+                return {
+                    postId: p.postId,
+                    userId: p.userId,
+                    title: p.title,
+                    content: p.content,
+                    like: p.like,
+                    view: p.like,
+                    createdAt: p.createdAt,
+                    nickname: nicknames.get(p.userId),
+                    categories: p.categories.map(c => c.category),
+                    isBookmarked: bookmark
+                }
+            })
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
+    getPostsWithBookmark: async (userId) => {
+        try {
+            const posts = await postRepository.getPostsByIdWithBookmark(userId);
+            const bookmarks = await getBookmark(userId);
+            if (posts?.length === 0) {
+                throw customError(StatusCodes.NOT_FOUND, `No posts`);
+            }
+            return posts.map(p => {
+                let bookmark = false;
+                if (bookmarks?.length > 0) {
+                    if (bookmarks.includes(p.postId)) bookmark = true;
+                }
+                return {
+                    postId: p.postId,
+                    userId: p.userId,
+                    title: p.title,
+                    content: p.content,
+                    like: p.like,
+                    view: p.like,
+                    createdAt: p.createdAt,
+                    categories: p.categories.map(c => c.category),
+                    isBookmarked: bookmark
+                }
+            });
+        } catch (error) {
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    }
+};

@@ -6,7 +6,6 @@ import { upload } from '@/utils';
 const router = express.Router();
 
 router.route('/users')
-    .get(isAuthenticated, userController.getProfileById)
     .post(userController.createLocalUser)
     .delete(isAuthorized, userController.deleteUser);
 
@@ -18,17 +17,30 @@ router.route('/users/preferences')
     .get(isAuthorized, userController.getUserPreferences)
     .patch(isAuthorized, userController.updateUserPreferences);
 
-router.route('/users/keywords')
-    .get(isAuthorized, userController.getMyKeywords)
-    .post(isAuthorized, userController.createMyKeyword)
-    .delete(isAuthorized, userController.dissociateMyKeyword);
+router.route('/users/block/:block_id')
+    .post(isAuthorized, userController.blockUser)
+    .delete(isAuthorized, userController.unBlockUser);
 
 router.patch('/users/image', isAuthenticated,
     upload.single('image'), userController.updateProfileImage);
 
-router.post('/users/password-reset/request', userController.sendMail);
-router.patch('/users/password-reset', userController.resetPassword);
-router.patch('users/password', isAuthorized, userController.changePassword);
+router.route('/users/neighbors/:id')
+    .get(isAuthenticated, userController.getNeighbor)
+    .post(isAuthorized, userController.followNeighbor)
+    .delete(isAuthorized, userController.unfollowNeighbor);
+
+router.get('/users/me', isAuthenticated, userController.getMyProfile);
+router.get('/users/block', isAuthorized, userController.getBlockUser);
 router.get('/users/email', userController.validateEmail);
+router.patch('/users/preferences/darkmode', isAuthorized, userController.updateUserDarkmode);
+router.get('/users/neighbors/follower/:id', userController.getFollowers);
+router.get('/users/neighbors/following/:id', userController.getFollowings);
+router.get('/users/neighbors/:id/count', userController.getNeighborsCount);
+
+router.patch('/users/password-reset', userController.resetPassword);
+router.post('/users/password-reset/request', userController.sendMail);
+router.post('/users/password-reset/confirm', userController.checkVerification);
+
+router.get('/users/:id', userController.getProfileById);
 
 export default router;

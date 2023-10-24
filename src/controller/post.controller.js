@@ -1,6 +1,7 @@
 import {asyncWrapper} from '@/common';
 import {postService} from '@/service/post.service';
 import {StatusCodes} from 'http-status-codes';
+import { customError } from '@/common/error';
 
 export const postController = {
     createPost: asyncWrapper(async (req, res) => {
@@ -143,5 +144,38 @@ export const postController = {
             console.log(error)
             res.status(500).json(error);
         }
+    }),
+    getPostsByType: asyncWrapper(async (req, res) => {
+        if (!req.query.type) {
+            throw customError(StatusCodes.UNPROCESSABLE_ENTITY, `Invaild argument.`);
+        }
+        switch (req.query.type) {
+            case 'like': {
+                const posts = await postService.getLikedPosts(req.user.userId);
+                return res.status(StatusCodes.OK).json(posts);
+            }
+            case 'comment': {
+                const posts = await postService.getCommentedPosts(req.user.userId);
+                return res.status(StatusCodes.OK).json(posts);
+            }
+            case 'bookmark': {
+                const posts = await postService.getBookmarkedPosts(req.user.userId);
+                return res.status(StatusCodes.OK).json(posts);
+            }
+            case 'me': {
+                const posts = await postService.getPostsById(req.user.userId);
+                return res.status(StatusCodes.OK).json(posts);
+            }
+            default: {
+                throw customError(StatusCodes.UNPROCESSABLE_ENTITY, `Invaild argument.`);
+            }
+        }
+    }),
+    getPostsByUserId: asyncWrapper(async (req, res) => {
+        if (!req.params.id) {
+            throw customError(StatusCodes.UNPROCESSABLE_ENTITY, `Invaild argument.`);
+        }
+        const posts = await postService.getPostsById(req.params.id, req.user.userId);
+        res.status(StatusCodes.OK).json(posts);
     })
 }

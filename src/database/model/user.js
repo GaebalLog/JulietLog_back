@@ -40,6 +40,7 @@ export const user = (sequelize, DataTypes) => {
         
         User.hasMany(models.Neighbor, { foreignKey: {
             name: "followsTo",
+            primaryKey: true,
             allowNull: false
         }, sourceKey: "userId", onDelete: 'CASCADE' });
         
@@ -98,6 +99,12 @@ export const user = (sequelize, DataTypes) => {
             name: "userId",
             primaryKey: true,
             allowNull: false
+        }, sourceKey: "userId", onDelete: 'CASCADE' });
+
+        User.hasMany(models.DiscussionUser, { foreignKey: {
+                name: "userId",
+                primaryKey: true,
+                allowNull: false
         }, sourceKey: "userId", onDelete: 'CASCADE' });
     };
     return User;

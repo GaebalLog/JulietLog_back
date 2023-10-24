@@ -1,6 +1,7 @@
 import db from '../database/index.js';
 
-const {Post, Image, Category, Profile, Neighbor, Bookmark, Like} = db;
+const {Post, Image, Category, Profile, Neighbor, Bookmark, Like, User} = db;
+import { col, literal, Op } from 'sequelize';
 
 export const postRepository = {
     findByPostId: async (postId) => {
@@ -192,7 +193,7 @@ export const postRepository = {
         return await Bookmark.findOne({where: {userId, postId}});
     },
 
-    addBookmark: async (userId, postId) => {
+    createBookmark: async (userId, postId) => {
         await Bookmark.create({userId, postId});
     },
 
@@ -206,7 +207,7 @@ export const postRepository = {
         return {like, likeCount};
     },
 
-    addLike: async (userId, postId) => {
+    createLike: async (userId, postId) => {
         await Like.create({userId, postId});
     },
 
@@ -216,5 +217,45 @@ export const postRepository = {
 
     updatePostLike: async (postId, likeCount) => {
         await Post.update({like: likeCount}, {where: {postId}});
+    },
+
+    getPostsById: async (userId) => {
+        return await Post.findAll({ 
+            where: { userId },
+            attributes: ['postId', 'userId', 'title', 'content', 'like', 'view', 'createdAt'],
+            include: [{ model: Category, attribute: 'category' }],
+        });
+    },
+    getPostIdByLike: async (userId) => {
+        return await Like.findAll({ 
+            where: { userId },
+            attribute: 'postId'
+        });
+    },
+    getPostIdByBookmark: async (userId) => {
+        return await Bookmark.findAll({
+            where: { userId },
+            attribute: 'postId'
+        });
+    },
+    getPostsByPostIds: async (postIds) => {
+        return await Post.findAll({
+            where: { postId: { [Op.in]: postIds }},
+            attributes: ['postId', 'userId', 'title', 'content', 'like', 'view', 'createdAt'],
+            include: [{ model: Category, attribute: 'category' }],
+        });
+    },
+    getPostsByIdWithBookmark: async (userId) => {
+        return await Post.findAll({
+            where: { userId },
+            attributes: ['postId', 'userId', 'title', 'content', 'like', 'view', 'createdAt'],
+            include: [{ model: Category, attribute: 'category' }],
+        });
+    },
+    getBookmarkByUserId: async (userId) => {
+        return await Bookmark.findAll({
+            where: { userId },
+            attribute: 'postId'
+        });
     }
 };

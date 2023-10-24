@@ -1,7 +1,7 @@
 import { customError } from '@/common/error';
 import { passwordRepository } from '@/repository';
 import { createToken, getTokens, verifyToken } from '@/utils';
-import { validateSchema } from '@/utils';
+import { validateSchema, redisCli as redisClient } from '@/utils';
 import { StatusCodes } from 'http-status-codes';
 import bcrypt from "bcrypt";
 
@@ -11,17 +11,26 @@ export const authService = {
             await validateSchema.login.validateAsync({ email, password });
             const user = await passwordRepository.findByEmail(email);
             if (!user) {
-                throw customError(StatusCodes.BAD_REQUEST, "Please check your email and password.");
+                throw customError(StatusCodes.NOT_FOUND, "User not found.");
             }
             if (bcrypt.compareSync(password, user.password.dataValues.password)) {
                 return await createToken(user.dataValues.userId);
             }
-            throw customError(StatusCodes.BAD_REQUEST, "Please check your email and password.");
+            throw customError(StatusCodes.CONFLICT, "Please check your email and password.");
         } catch (error) {
             if (error.name === "ValidationError") {
                 throw customError(StatusCodes.BAD_REQUEST, 'Data validation failed.');
             }
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+        }
+    },
+    logout: async (userId) => {
+        try {
+            if (await redisClient.hGet("tokens", userId)) {
+                await redisClient.hDel("tokens", userId);
+            }
+        } catch (error) {
+            throw customError(StatusCodes.INTERNAL_SERVER_ERROR);
         }
     },
     reissueToken: async (accessToken, refreshToken) => {
@@ -36,7 +45,7 @@ export const authService = {
             }
             return await createToken(payload.userId);
         } catch (error) {
-            throw customError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+            throw customError(error.status || StatusCodes.INTERNAL_SERVER_ERROR, error.message);
         }
     }
 }
